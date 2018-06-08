@@ -1,41 +1,154 @@
-﻿<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>&lt;juicy-html&gt; in a &lt;template&gt; with HTML partial loaded from a file</title>
-    <script src="../../webcomponentsjs/webcomponents-lite.js"></script>
-
-    <link rel="import" href="../juicy-html.html">
-    <link rel="import" href="../../polymer/polymer.html">
-
-    <style>
-        body {
-            font-family: Helvetica, Arial, sans-serif;
-            color: #333;
-        }
-    </style>
-</head>
-<body>
-    <dom-bind>
-        <template id="test" is="dom-bind">
-            <juicy-html model="{{model.subpage}}" href="{{model.subpage.html}}"></juicy-html>
-        </template>
-    </dom-bind>
+<!--
+juicy-html.html
+(c) 2013-2015 Juicy
+MIT license
+https://github.com/Juicy/juicy-html
+version: 4.0.0
+-->
+<dom-module id="juicy-html">
     <script>
-        var model = {
-            subpage: {
-                username: "World",
-                html: "./partials/page_1.html"
+        class JuicyHTMLElement extends Polymer.Element {
+            static get is() {
+                return 'juicy-html';
+            }
+
+            static get properties() {
+                return {
+                    href: {
+                        type: String,
+                        value: '',
+                        observer: '_onhrefChange'
+                    },
+                    model: {
+                        type: Object,
+                        value: function () {
+                            return {}
+                        },
+                    },
+                    html: {
+                        type: String,
+                        value: '',
+                        observer: '_onhtmlChange'
+                    }
+                }
+            }
+
+            constructor() {
+                super();
+            }
+
+            /** Autostamp on connected */
+            connectedCallback() {
+                super.connectedCallback();
+
+                this.isAttached = true;
+                // Workaround for lack of inertness as for `<tempalte is="juicy-html">`.
+                // Bellow is cheaper and simmpler than attaching shadow with display none
+                // it does not give exactly the same behavior, but hopefully nobody would like to make it block.
+                this.style.display = 'none';
+                // autostamp
+                // TODO(tomalec): read pre-upgrade properties in cheap manner
+                if (this.href) {
+                    this._loadExternalFile(this.href);
+                } else if (this.html) {
+                    this.reattachTemplate_(this.html);
+                } else {
+                    this.clear();
+                }
+            }
+            disconnectedCallback() {
+                this.isAttached = false;
+                this.clear();
+            }
+            /**
+             * Skips/disregards pending request if any.
+             */
+            skipStampingPendingFile() {
+                if (this.pending) {
+                    this.pending.onload = null;
+                }
+            };
+
+            _onhtmlChange() {
+                if (this.html) {
+                    this.reattachTemplate_(this.html);
+                }
+            };
+
+            _onhrefChange() {
+                if (this.href) {
+                    this._loadExternalFile(this.href);
+                }
+
+            }
+            /**
+             * Load the partial from the HTTP server/cache, via XHR.
+             * @param  {String} url relative/absolute string to load the resource
+             */
+            _loadExternalFile(url) {
+                var oReq = new XMLHttpRequest();
+                var that = this;
+                this.pending = oReq;
+                oReq.onload = function (event) {
+                    that.pending = null;
+                    that.reattachTemplate_(event.target.responseText, oReq.status);
+                };
+                oReq.open("GET", url, true);
+                oReq.send();
+            }
+
+            reattachTemplate_(html, statusCode) {
+                this.clear();
+                if (html === '') {
+                    if (statusCode === 204) {
+                        console.info('no content was returned for juicy-html', this);
+                    } else {
+                        console.warn('href given for juicy-html is an empty file', this);
+                    }
+                }
+                // fragmentFromString(strHTML) from http://stackoverflow.com/a/25214113/868184
+                var range = document.createRange();
+
+                var fragment = range.createContextualFragment(html);
+                // convert dynamic NodeList to regullar array
+                this.stampedNodes = Array.prototype.slice.call(fragment.childNodes);
+                // attach models
+                this.parentNode.insertBefore(fragment, this.nextSibling);
+                this.dispatchEvent(new CustomEvent("stamped", {
+                    detail: this.stampedNodes
+                }));
+
+            }
+
+            /**
+             * Remove stamped nodes.
+             */
+            clear() {
+                var parent = this.parentNode;
+                var childNo = this.stampedNodes && this.stampedNodes.length || 0;
+                var child;
+                while (childNo--) {
+                    // this.stampedNodes[childNo].remove();
+                    child = this.stampedNodes[childNo];
+                    if (child.parentNode) {
+                        child.parentNode.removeChild(child);
+                    }
+                }
+                // forget the removed nodes
+                this.stampedNodes = null;
+            }
+
+            attachModel(model, arrayOfElements) {
+                arrayOfElements || (arrayOfElements = this.stampedNodes);
+                if (model === null || !arrayOfElements) {
+                    return;
+                }
+                for (var childNo = 0; childNo < arrayOfElements.length; childNo++) {
+                    arrayOfElements[childNo].model = model;
+                }
             }
         };
 
-      window.addEventListener('WebComponentsReady', function() {
-          if(Polymer.Element){
-              document.getElementById('test').parentNode.model = model;
-          } else {
-              document.getElementById('test').model = model;
-          }
-      });
+        customElements.define(JuicyHTMLElement.is, JuicyHTMLElement);
     </script>
-</body>
-</html>
+</dom-module>
